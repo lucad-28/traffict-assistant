@@ -4,7 +4,7 @@
 
 Se han corregido todos los errores de TypeScript y deprecación del SDK de MCP, logrando un build exitoso.
 
-## Errores Corregidos
+## Errores Corr
 
 ### 1. ❌ Error: SSEClientTransport está deprecado
 
