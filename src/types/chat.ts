@@ -17,6 +17,27 @@ export interface Station {
   };
 }
 
+export interface RouteData {
+  origin_marker?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+  };
+  destination_marker?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+  };
+  route_polyline?: Array<[number, number]>;
+  intermediate_stations?: Array<{
+    id: number;
+    latitude: number;
+    longitude: number;
+    spi?: number;
+    name?: string;
+  }>;
+}
+
 export interface TrafficMapData {
   query_location: {
     name: string;
@@ -29,6 +50,13 @@ export interface TrafficMapData {
     longitude: number;
   };
   map_zoom: number;
+  route_data?: RouteData;
+}
+
+export interface ToolProgress {
+  tool_name: string;
+  message: string;
+  timestamp: number;
 }
 
 export interface Message {
@@ -37,6 +65,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   mapData?: TrafficMapData;
+  toolProgress?: ToolProgress[];
 }
 
 export interface Tool {
@@ -48,4 +77,5 @@ export interface ChatResponse {
   response: string;
   session_id: string;
   mapData?: TrafficMapData;
+  toolProgress?: ToolProgress[];
 }

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionManager } from '@/lib/session-manager';
+import { setSessionMeta } from '@/lib/firebase-client';
 
 export const runtime = 'nodejs'; // Use Node.js runtime for MCP client support
 
@@ -27,10 +28,17 @@ interface TrafficMapData {
   map_zoom: number;
 }
 
+interface ToolProgress {
+  tool_name: string;
+  message: string;
+  timestamp: number;
+}
+
 interface ChatResponse {
   response: string;
   session_id: string;
   mapData?: TrafficMapData;
+  toolProgress?: ToolProgress[];
 }
 
 export async function POST(request: NextRequest) {
@@ -60,14 +68,22 @@ export async function POST(request: NextRequest) {
     const sessionManager = getSessionManager();
     const chatService = await sessionManager.getSession(session_id);
 
+    // Ensure session document exists in Firestore (server-side) using client SDK
+    try {
+      await setSessionMeta(session_id, { sessionId: session_id });
+    } catch (err) {
+      console.warn('[API /chat] Could not update Firestore session doc', err);
+    }
+
     // Process message
     const result = await chatService.chat(message);
 
-    // Return response with optional map data
+    // Return response with optional map data and tool progress
     const chatResponse: ChatResponse = {
       response: result.response,
       session_id,
-      mapData: result.mapData
+      mapData: result.mapData,
+      toolProgress: result.toolProgress
     };
 
     return NextResponse.json(chatResponse);

@@ -1,8 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Marker } from 'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// Fix for default marker icons in react-leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 export interface Station {
   id: number;
@@ -23,6 +32,27 @@ export interface Station {
   };
 }
 
+export interface RouteData {
+  origin_marker?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+  };
+  destination_marker?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+  };
+  route_polyline?: Array<[number, number]>;
+  intermediate_stations?: Array<{
+    id: number;
+    latitude: number;
+    longitude: number;
+    spi?: number;
+    name?: string;
+  }>;
+}
+
 export interface TrafficMapData {
   query_location: {
     name: string;
@@ -35,6 +65,7 @@ export interface TrafficMapData {
     longitude: number;
   };
   map_zoom: number;
+  route_data?: RouteData;
 }
 
 interface TrafficMapProps {
@@ -57,12 +88,30 @@ function getTrafficLabel(spi?: number): string {
   return 'Muy congestionado';
 }
 
+// Create custom icons for origin and destination markers
+function createCustomIcon(color: string, label: string) {
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `<div style="background-color: ${color}; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+      <span style="transform: rotate(45deg); color: white; font-weight: bold; font-size: 12px;">${label}</span>
+    </div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 30],
+    popupAnchor: [0, -30]
+  });
+}
+
 export function TrafficMap({ data }: TrafficMapProps) {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
-  }, []);
+    console.log('🗺️ TrafficMap mounted with data:', {
+      query: data.query_location?.name,
+      stationsCount: data.stations?.length,
+      stations: data.stations
+    });
+  }, [data]);
 
   // Don't render on server side (Leaflet requires window object)
   if (!isClient) {
@@ -165,6 +214,94 @@ export function TrafficMap({ data }: TrafficMapProps) {
             </Popup>
           </CircleMarker>
         ))}
+
+        {/* Route visualization */}
+        {data.route_data && (
+          <>
+            {/* Origin marker */}
+            {data.route_data.origin_marker && (
+              <Marker
+                position={[
+                  data.route_data.origin_marker.latitude,
+                  data.route_data.origin_marker.longitude
+                ]}
+                icon={createCustomIcon('#4CAF50', 'O')}
+              >
+                <Popup>
+                  <div className="p-2">
+                    <h3 className="font-bold text-lg text-green-700">🚗 Origen</h3>
+                    <p className="text-sm mt-1">{data.route_data.origin_marker.name}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {data.route_data.origin_marker.latitude.toFixed(4)}, {data.route_data.origin_marker.longitude.toFixed(4)}
+                    </p>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Destination marker */}
+            {data.route_data.destination_marker && (
+              <Marker
+                position={[
+                  data.route_data.destination_marker.latitude,
+                  data.route_data.destination_marker.longitude
+                ]}
+                icon={createCustomIcon('#F44336', 'D')}
+              >
+                <Popup>
+                  <div className="p-2">
+                    <h3 className="font-bold text-lg text-red-700">🏁 Destino</h3>
+                    <p className="text-sm mt-1">{data.route_data.destination_marker.name}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {data.route_data.destination_marker.latitude.toFixed(4)}, {data.route_data.destination_marker.longitude.toFixed(4)}
+                    </p>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Route polyline */}
+            {data.route_data.route_polyline && data.route_data.route_polyline.length > 0 && (
+              <Polyline
+                positions={data.route_data.route_polyline}
+                pathOptions={{
+                  color: '#2196F3',
+                  weight: 4,
+                  opacity: 0.7,
+                  dashArray: '10, 5'
+                }}
+              />
+            )}
+
+            {/* Intermediate stations on route */}
+            {data.route_data.intermediate_stations?.map((station, index) => (
+              <CircleMarker
+                key={`route-station-${station.id || index}`}
+                center={[station.latitude, station.longitude]}
+                radius={6}
+                pathOptions={{
+                  color: getColorFromSPI(station.spi),
+                  fillColor: getColorFromSPI(station.spi),
+                  fillOpacity: 0.9,
+                  weight: 2
+                }}
+              >
+                <Popup>
+                  <div className="p-2">
+                    <h3 className="font-bold text-sm">
+                      {station.name || `Estación ${station.id}`}
+                    </h3>
+                    {station.spi !== undefined && (
+                      <p className="text-sm mt-1">
+                        <span className="font-semibold">SPI:</span> {station.spi.toFixed(1)}
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </CircleMarker>
+            ))}
+          </>
+        )}
       </MapContainer>
 
       {/* Legend */}
@@ -175,6 +312,22 @@ export function TrafficMap({ data }: TrafficMapProps) {
             <div className="w-3 h-3 rounded-full bg-[#3B82F6]"></div>
             <span>Ubicación consultada</span>
           </div>
+          {data.route_data && (
+            <>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded-full bg-[#4CAF50]"></div>
+                <span>Origen</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded-full bg-[#F44336]"></div>
+                <span>Destino</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div style={{width: '20px', height: '2px', backgroundColor: '#2196F3'}}></div>
+                <span>Ruta</span>
+              </div>
+            </>
+          )}
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 rounded-full bg-[#388E3C]"></div>
             <span>Fluido</span>

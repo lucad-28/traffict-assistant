@@ -40,7 +40,7 @@ class SessionManager {
     console.log(`[Session Manager] Creating new session: ${sessionId}`);
 
     const mcpClient = getMCPClient();
-    const service = new TrafficChatService(mcpClient);
+    const service = new TrafficChatService(mcpClient, sessionId);
 
     // Initialize the service
     await service.initialize();

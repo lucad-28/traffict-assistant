@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { Message } from '@/types/chat';
+import { ToolProgressIndicator } from './ToolProgressIndicator';
 
 // Dynamically import TrafficMap with no SSR to avoid "window is not defined" error
 const TrafficMap = dynamic(
@@ -15,6 +16,13 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   console.log('Rendering ChatMessage:', message);
+  if (message.mapData) {
+    console.log('📍 Map data received:', {
+      query: message.mapData.query_location?.name,
+      stationsCount: message.mapData.stations?.length,
+      hasStations: !!message.mapData.stations && message.mapData.stations.length > 0
+    });
+  }
   const isUser = message.role === 'user';
 
   return (
@@ -31,6 +39,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
         <p className="text-sm font-medium text-gray-900 mb-1">
           {isUser ? 'Tú' : 'Asistente de Tráfico'}
         </p>
+
+        {/* Render tool progress if available */}
+        {message.toolProgress && message.toolProgress.length > 0 && (
+          <ToolProgressIndicator progress={message.toolProgress} />
+        )}
+
         <div className="text-gray-700 whitespace-pre-wrap break-words">
           {message.content}
         </div>
