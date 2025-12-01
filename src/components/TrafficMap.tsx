@@ -43,13 +43,20 @@ export interface RouteData {
     longitude: number;
     name: string;
   };
-  route_polyline?: Array<[number, number]>;
+  // Supports both tuple format (in-memory) and object format (from Firestore)
+  // This is the actual Mapbox route geometry, not connections between stations
+  route_polyline?: Array<[number, number]> | Array<{ lat: number; lng: number }>;
+  // Traffic monitoring stations along the route (separate from route line)
   intermediate_stations?: Array<{
     id: number;
     latitude: number;
     longitude: number;
     spi?: number;
+    congestion_level?: number;
+    traffic_state?: string;
     name?: string;
+    freeway?: number;
+    direction?: string;
   }>;
 }
 
@@ -78,6 +85,26 @@ function getColorFromSPI(spi?: number): string {
   if (spi >= 50) return '#FBC02D'; // yellow - smooth
   if (spi >= 25) return '#F57C00'; // orange - mild congestion
   return '#D32F2F'; // red - heavy congestion
+}
+
+/**
+ * Normalizes route polyline to tuple format for Leaflet
+ * Handles both old format (tuples) and new Firestore format (objects)
+ */
+function normalizePolyline(
+  polyline: Array<[number, number]> | Array<{ lat: number; lng: number }> | undefined
+): Array<[number, number]> | undefined {
+  if (!polyline || polyline.length === 0) return undefined;
+
+  // Check if first element is an object (Firestore format)
+  const firstPoint = polyline[0];
+  if (firstPoint && typeof firstPoint === 'object' && 'lat' in firstPoint && 'lng' in firstPoint) {
+    // Convert from {lat, lng} to [lat, lng]
+    return (polyline as Array<{ lat: number; lng: number }>).map(point => [point.lat, point.lng]);
+  }
+
+  // Already in tuple format
+  return polyline as Array<[number, number]>;
 }
 
 function getTrafficLabel(spi?: number): string {
@@ -260,42 +287,85 @@ export function TrafficMap({ data }: TrafficMapProps) {
               </Marker>
             )}
 
-            {/* Route polyline */}
-            {data.route_data.route_polyline && data.route_data.route_polyline.length > 0 && (
-              <Polyline
-                positions={data.route_data.route_polyline}
-                pathOptions={{
-                  color: '#2196F3',
-                  weight: 4,
-                  opacity: 0.7,
-                  dashArray: '10, 5'
-                }}
-              />
-            )}
+            {/* Route polyline - Mapbox actual route geometry */}
+            {(() => {
+              const normalizedPolyline = normalizePolyline(data.route_data.route_polyline);
+              return normalizedPolyline && normalizedPolyline.length > 0 && (
+                <>
+                  {/* Route outline for better visibility */}
+                  <Polyline
+                    positions={normalizedPolyline}
+                    pathOptions={{
+                      color: '#1565C0',
+                      weight: 7,
+                      opacity: 0.3
+                    }}
+                  />
+                  {/* Main route line */}
+                  <Polyline
+                    positions={normalizedPolyline}
+                    pathOptions={{
+                      color: '#2196F3',
+                      weight: 5,
+                      opacity: 0.8,
+                      lineCap: 'round',
+                      lineJoin: 'round'
+                    }}
+                  />
+                </>
+              );
+            })()}
 
-            {/* Intermediate stations on route */}
+            {/* Traffic monitoring stations along route */}
             {data.route_data.intermediate_stations?.map((station, index) => (
               <CircleMarker
                 key={`route-station-${station.id || index}`}
                 center={[station.latitude, station.longitude]}
-                radius={6}
+                radius={7}
                 pathOptions={{
                   color: getColorFromSPI(station.spi),
                   fillColor: getColorFromSPI(station.spi),
                   fillOpacity: 0.9,
-                  weight: 2
+                  weight: 3,
+                  stroke: true
                 }}
               >
                 <Popup>
-                  <div className="p-2">
-                    <h3 className="font-bold text-sm">
-                      {station.name || `Estación ${station.id}`}
+                  <div className="p-2 min-w-[220px]">
+                    <h3 className="font-bold text-base">
+                      📊 {station.name || `Estación ${station.id}`}
                     </h3>
-                    {station.spi !== undefined && (
-                      <p className="text-sm mt-1">
-                        <span className="font-semibold">SPI:</span> {station.spi.toFixed(1)}
+                    <div className="mt-2 space-y-1">
+                      {station.freeway && (
+                        <p className="text-sm">
+                          <span className="font-semibold">Autopista:</span> {station.freeway} {station.direction || ''}
+                        </p>
+                      )}
+                      {station.spi !== undefined && (
+                        <>
+                          <p className="text-sm">
+                            <span className="font-semibold">SPI:</span> {station.spi.toFixed(1)}
+                          </p>
+                          <p className="text-sm">
+                            <span className="font-semibold">Estado:</span>{' '}
+                            <span
+                              className="px-2 py-1 rounded text-white text-xs"
+                              style={{ backgroundColor: getColorFromSPI(station.spi) }}
+                            >
+                              {getTrafficLabel(station.spi)}
+                            </span>
+                          </p>
+                        </>
+                      )}
+                      {station.traffic_state && (
+                        <p className="text-sm">
+                          <span className="font-semibold">Descripción:</span> {station.traffic_state}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-2 italic">
+                        Estación de monitoreo de tráfico
                       </p>
-                    )}
+                    </div>
                   </div>
                 </Popup>
               </CircleMarker>

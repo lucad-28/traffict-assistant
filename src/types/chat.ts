@@ -28,7 +28,8 @@ export interface RouteData {
     longitude: number;
     name: string;
   };
-  route_polyline?: Array<[number, number]>;
+  // Supports both tuple format (in-memory) and object format (from Firestore)
+  route_polyline?: Array<[number, number]> | Array<{ lat: number; lng: number }>;
   intermediate_stations?: Array<{
     id: number;
     latitude: number;

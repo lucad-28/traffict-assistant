@@ -33,6 +33,78 @@ export interface RouteData {
   }>;
 }
 
+// Firestore-compatible version with no nested arrays
+interface FirestoreRouteData {
+  origin_marker?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+  };
+  destination_marker?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+  };
+  route_polyline?: Array<{ lat: number; lng: number }>;
+  intermediate_stations?: Array<{
+    id: number;
+    latitude: number;
+    longitude: number;
+    spi?: number;
+    name?: string;
+  }>;
+}
+
+interface FirestoreTrafficMapData {
+  query_location: {
+    name: string;
+    latitude: number;
+    longitude: number;
+  };
+  stations?: any[];
+  map_center: {
+    latitude: number;
+    longitude: number;
+  };
+  map_zoom: number;
+  route_data?: FirestoreRouteData;
+}
+
+/**
+ * Converts TrafficMapData to a Firestore-compatible format
+ * Firestore doesn't support nested arrays, so we convert coordinate tuples to objects
+ */
+function serializeMapDataForFirestore(mapData: TrafficMapData | null | undefined): FirestoreTrafficMapData | null {
+  if (!mapData) return null;
+
+  // Convert route_polyline from Array<[lat, lng]> to Array<{lat, lng}>
+  if (mapData.route_data?.route_polyline && Array.isArray(mapData.route_data.route_polyline)) {
+    const polyline = mapData.route_data.route_polyline;
+
+    // Check if it's already in object format
+    const firstPoint = polyline[0];
+    const isObjectFormat = firstPoint && typeof firstPoint === 'object' && 'lat' in firstPoint;
+
+    let convertedPolyline: Array<{ lat: number; lng: number }>;
+
+    if (isObjectFormat) {
+      convertedPolyline = polyline as unknown as Array<{ lat: number; lng: number }>;
+    } else {
+      convertedPolyline = (polyline as unknown as Array<[number, number]>).map(([lat, lng]) => ({ lat, lng }));
+    }
+
+    return {
+      ...mapData,
+      route_data: {
+        ...mapData.route_data,
+        route_polyline: convertedPolyline,
+      },
+    };
+  }
+
+  return mapData as FirestoreTrafficMapData;
+}
+
 export interface TrafficMapData {
   query_location: {
     name: string;
@@ -571,49 +643,97 @@ CUÁNDO USAR GEOCODE + TRAFFIC MAP:
               // If suggest_routes was called, extract route data for map visualization
               if (
                 toolName === "suggest_routes" &&
+                parsedResult.status === "success" &&
                 parsedResult.routes &&
                 parsedResult.routes.length > 0
               ) {
                 const bestRoute = parsedResult.routes[0]; // Use first (best) route
+
+                // Extract origin and destination from suggest_routes response
+                // Use these if geocode_location wasn't called previously
+                if (!originLocationData && parsedResult.origin) {
+                  originLocationData = {
+                    latitude: parsedResult.origin.latitude,
+                    longitude: parsedResult.origin.longitude,
+                    name: parsedResult.origin.name || "Origen",
+                  };
+                  console.log(
+                    `[LLM Service] 🚗 Using origin from suggest_routes: ${originLocationData.name}`
+                  );
+                }
+
+                if (!destinationLocationData && parsedResult.destination) {
+                  destinationLocationData = {
+                    latitude: parsedResult.destination.latitude,
+                    longitude: parsedResult.destination.longitude,
+                    name: parsedResult.destination.name || "Destino",
+                  };
+                  console.log(
+                    `[LLM Service] 🏁 Using destination from suggest_routes: ${destinationLocationData.name}`
+                  );
+                }
+
                 console.log(
                   `[LLM Service] 🗺️ Extracting route data for ${
-                    bestRoute.stations?.length || 0
+                    bestRoute.station_details?.length || 0
                   } stations`
                 );
 
-                // Build polyline from station_details (now includes coordinates)
+                // Extract Mapbox geometry for the actual route polyline
+                // This is the real road path, not connections between stations
                 const polyline: Array<[number, number]> = [];
                 const intermediateStations: Array<any> = [];
 
+                // Extract route geometry from Mapbox response
+                if (bestRoute.geometry && bestRoute.geometry.coordinates) {
+                  const coordinates = bestRoute.geometry.coordinates;
+                  console.log(
+                    `[LLM Service] 🗺️ Using Mapbox geometry (${coordinates.length} points)`
+                  );
+
+                  // Convert from [lon, lat] (GeoJSON format) to [lat, lon] (Leaflet format)
+                  coordinates.forEach((coord: any) => {
+                    if (Array.isArray(coord) && coord.length >= 2) {
+                      const lon = coord[0];
+                      const lat = coord[1];
+                      polyline.push([lat, lon]);
+                    }
+                  });
+
+                  console.log(
+                    `[LLM Service] ✅ Route polyline created with ${polyline.length} points`
+                  );
+                }
+
+                // Extract stations as separate markers (NOT part of the route line)
                 if (
                   bestRoute.station_details &&
                   Array.isArray(bestRoute.station_details)
                 ) {
                   console.log(
-                    `[LLM Service] ✅ Using station_details from API (${bestRoute.station_details.length} stations)`
+                    `[LLM Service] 📊 Adding ${bestRoute.station_details.length} traffic monitoring stations`
                   );
 
-                  bestRoute.station_details.forEach(
-                    (station: any, index: number) => {
-                      if (station.latitude && station.longitude) {
-                        polyline.push([station.latitude, station.longitude]);
-
-                        // Add intermediate stations (skip first and last as they're origin/dest)
-                        const isFirst = index === 0;
-                        const isLast =
-                          index === bestRoute.station_details.length - 1;
-                        if (!isFirst && !isLast) {
-                          intermediateStations.push({
-                            id: station.id,
-                            latitude: station.latitude,
-                            longitude: station.longitude,
-                            name: station.name,
-                            freeway: station.freeway,
-                            direction: station.direction,
-                          });
-                        }
-                      }
+                  bestRoute.station_details.forEach((station: any) => {
+                    if (station.latitude && station.longitude) {
+                      // Add ALL stations as traffic info markers
+                      // These are separate from the route polyline
+                      intermediateStations.push({
+                        id: station.id,
+                        latitude: station.latitude,
+                        longitude: station.longitude,
+                        name: station.name,
+                        freeway: station.freeway,
+                        direction: station.direction,
+                        spi: station.spi,
+                        congestion_level: station.congestion_level,
+                        traffic_state: station.traffic_state,
+                      });
                     }
+                  });
+
+                  console.log(
+                    `[LLM Service] ✅ Added ${intermediateStations.length} station markers`
                   );
                 } else if (
                   bestRoute.stations &&
@@ -621,73 +741,88 @@ CUÁNDO USAR GEOCODE + TRAFFIC MAP:
                 ) {
                   // Fallback to old method if station_details not available
                   console.log(
-                    `[LLM Service] ⚠️ Fallback: Using allStations map`
+                    `[LLM Service] ⚠️ Fallback: Using allStations map for stations`
                   );
                   bestRoute.stations.forEach((stationId: number) => {
                     const station = allStations.get(stationId);
                     if (station && station.latitude && station.longitude) {
-                      polyline.push([station.latitude, station.longitude]);
-
-                      const isFirst = polyline.length === 1;
-                      const isLast =
-                        polyline.length === bestRoute.stations.length;
-                      if (!isFirst && !isLast) {
-                        intermediateStations.push({
-                          id: station.id,
-                          latitude: station.latitude,
-                          longitude: station.longitude,
-                          spi: station.traffic?.spi,
-                          name: station.name,
-                        });
-                      }
+                      intermediateStations.push({
+                        id: station.id,
+                        latitude: station.latitude,
+                        longitude: station.longitude,
+                        spi: station.traffic?.spi,
+                        name: station.name,
+                      });
                     }
                   });
                 }
 
-                // Add route data to current map data
-                if (this.currentMapData) {
-                  this.currentMapData.route_data = {
-                    origin_marker: originLocationData
-                      ? {
-                          latitude: originLocationData.latitude,
-                          longitude: originLocationData.longitude,
-                          name: originLocationData.name,
-                        }
-                      : undefined,
-                    destination_marker: destinationLocationData
-                      ? {
-                          latitude: destinationLocationData.latitude,
-                          longitude: destinationLocationData.longitude,
-                          name: destinationLocationData.name,
-                        }
-                      : undefined,
-                    route_polyline: polyline.length > 0 ? polyline : undefined,
-                    intermediate_stations: intermediateStations,
+                // Create map data if it doesn't exist yet
+                if (!this.currentMapData) {
+                  const centerLat = originLocationData && destinationLocationData
+                    ? (originLocationData.latitude + destinationLocationData.latitude) / 2
+                    : parsedResult.origin?.latitude || 34.0522;
+                  const centerLon = originLocationData && destinationLocationData
+                    ? (originLocationData.longitude + destinationLocationData.longitude) / 2
+                    : parsedResult.origin?.longitude || -118.2437;
+
+                  this.currentMapData = {
+                    query_location: {
+                      name: "Route",
+                      latitude: centerLat,
+                      longitude: centerLon,
+                    },
+                    stations: [],
+                    map_center: {
+                      latitude: centerLat,
+                      longitude: centerLon,
+                    },
+                    map_zoom: 10,
                   };
-
-                  // Update map center to show both origin and destination
-                  if (originLocationData && destinationLocationData) {
-                    this.currentMapData.map_center = {
-                      latitude:
-                        (originLocationData.latitude +
-                          destinationLocationData.latitude) /
-                        2,
-                      longitude:
-                        (originLocationData.longitude +
-                          destinationLocationData.longitude) /
-                        2,
-                    };
-                    this.currentMapData.map_zoom = 10; // Zoom out to show full route
-                  }
-
-                  console.log(`[LLM Service] ✅ Route data added to map:`, {
-                    hasOrigin: !!this.currentMapData.route_data.origin_marker,
-                    hasDestination:
-                      !!this.currentMapData.route_data.destination_marker,
-                    polylinePoints: polyline.length,
-                    intermediateStations: intermediateStations.length,
-                  });
                 }
+
+                // Add route data to current map data
+                this.currentMapData.route_data = {
+                  origin_marker: originLocationData
+                    ? {
+                        latitude: originLocationData.latitude,
+                        longitude: originLocationData.longitude,
+                        name: originLocationData.name,
+                      }
+                    : undefined,
+                  destination_marker: destinationLocationData
+                    ? {
+                        latitude: destinationLocationData.latitude,
+                        longitude: destinationLocationData.longitude,
+                        name: destinationLocationData.name,
+                      }
+                    : undefined,
+                  route_polyline: polyline.length > 0 ? polyline : undefined,
+                  intermediate_stations: intermediateStations,
+                };
+
+                // Update map center to show both origin and destination
+                if (originLocationData && destinationLocationData) {
+                  this.currentMapData.map_center = {
+                    latitude:
+                      (originLocationData.latitude +
+                        destinationLocationData.latitude) /
+                      2,
+                    longitude:
+                      (originLocationData.longitude +
+                        destinationLocationData.longitude) /
+                      2,
+                  };
+                  this.currentMapData.map_zoom = 10; // Zoom out to show full route
+                }
+
+                console.log(`[LLM Service] ✅ Route data added to map:`, {
+                  hasOrigin: !!this.currentMapData.route_data.origin_marker,
+                  hasDestination:
+                    !!this.currentMapData.route_data.destination_marker,
+                  polylinePoints: polyline.length,
+                  intermediateStations: intermediateStations.length,
+                });
               }
               // If we have geocode data but no traffic data yet, create a simple map
               else if (geocodeData && !this.currentMapData) {
@@ -780,7 +915,7 @@ CUÁNDO USAR GEOCODE + TRAFFIC MAP:
           this.currentDraftMessageId,
           {
             content: finalResponse,
-            mapData: this.currentMapData || null,
+            mapData: serializeMapDataForFirestore(this.currentMapData || null),
             toolProgress: toolProgressMessages,
             toolResults: cumulativeToolResults,
             status: "done",
@@ -793,7 +928,7 @@ CUÁNDO USAR GEOCODE + TRAFFIC MAP:
         await this.writeToFirestore({
           role: "assistant",
           content: finalResponse,
-          mapData: this.currentMapData,
+          mapData: serializeMapDataForFirestore(this.currentMapData),
           toolProgress: toolProgressMessages,
         });
       }
