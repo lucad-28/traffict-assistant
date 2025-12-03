@@ -1,3 +1,20 @@
+export interface FuzzyClassification {
+  memberships: {
+    [category: string]: number;
+  };
+  dominant_category: string;
+  dominant_label: string;
+  confidence: number;
+  is_transition_state: boolean;
+  linguistic_description: string;
+  ranked_categories: Array<{
+    category: string;
+    label: string;
+    membership: number;
+    color: string;
+  }>;
+}
+
 export interface Station {
   id: number;
   name: string;
@@ -14,6 +31,7 @@ export interface Station {
     congestion_label: string;
     traffic_state: string;
     confidence_level: string;
+    fuzzy_classification?: FuzzyClassification;
   };
 }
 
