@@ -76,7 +76,28 @@ export class TrafficMCPClient {
       }));
 
       this.toolsCache = tools;
-      console.log(`[MCP Client] Retrieved ${tools.length} tools`);
+      console.log(`[MCP Client] Retrieved ${tools.length} tools:`);
+      tools.forEach(tool => {
+        console.log(`  - ${tool.name}: ${tool.description.substring(0, 60)}...`);
+      });
+
+      // Validate expected tools are present
+      const expectedTools = [
+        'get_traffic_stations',
+        'get_actual_traffic',
+        'predict_traffic_spi',
+        'suggest_routes',
+        'geocode_location',
+        'get_traffic_at_location'
+      ];
+
+      const missingTools = expectedTools.filter(
+        expected => !tools.some(tool => tool.name === expected)
+      );
+
+      if (missingTools.length > 0) {
+        console.warn(`[MCP Client] Warning: Missing expected tools: ${missingTools.join(', ')}`);
+      }
 
       return tools;
     } catch (error) {

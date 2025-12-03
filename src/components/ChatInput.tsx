@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, KeyboardEvent } from 'react';
+import { Send, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -26,28 +28,32 @@ export function ChatInput({ onSend, isLoading, disabled }: ChatInputProps) {
   };
 
   return (
-    <div className="border-t bg-white p-4">
-      <div className="flex gap-2">
+    <div className="border-t bg-background p-4">
+      <div className="flex gap-2 max-w-5xl mx-auto">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={disabled ? "Conectando..." : "Escribe tu pregunta sobre tráfico..."}
           disabled={disabled || isLoading}
-          className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          className="flex-1 resize-none rounded-lg border border-input bg-background px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           rows={2}
         />
-        <button
+        <Button
           onClick={handleSend}
           disabled={!input.trim() || isLoading || disabled}
-          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          size="lg"
+          className="px-6"
         >
           {isLoading ? (
-            <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <span>Enviar</span>
+            <>
+              <Send className="h-5 w-5 mr-2" />
+              Enviar
+            </>
           )}
-        </button>
+        </Button>
       </div>
     </div>
   );

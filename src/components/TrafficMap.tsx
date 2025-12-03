@@ -77,6 +77,7 @@ export interface TrafficMapData {
 
 interface TrafficMapProps {
   data: TrafficMapData;
+  fullHeight?: boolean;
 }
 
 function getColorFromSPI(spi?: number): string {
@@ -128,7 +129,7 @@ function createCustomIcon(color: string, label: string) {
   });
 }
 
-export function TrafficMap({ data }: TrafficMapProps) {
+export function TrafficMap({ data, fullHeight = false }: TrafficMapProps) {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -143,8 +144,8 @@ export function TrafficMap({ data }: TrafficMapProps) {
   // Don't render on server side (Leaflet requires window object)
   if (!isClient) {
     return (
-      <div className="w-full h-96 bg-gray-100 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500">Cargando mapa...</p>
+      <div className={fullHeight ? "w-full h-full bg-muted/10 flex items-center justify-center" : "w-full h-96 bg-muted/10 rounded-lg flex items-center justify-center"}>
+        <p className="text-muted-foreground">Cargando mapa...</p>
       </div>
     );
   }
@@ -154,8 +155,12 @@ export function TrafficMap({ data }: TrafficMapProps) {
     data.map_center.longitude
   ];
 
+  const containerClasses = fullHeight
+    ? "w-full h-full overflow-hidden rounded-md"
+    : "w-full h-96 rounded-lg overflow-hidden border border-border my-4";
+
   return (
-    <div className="w-full h-96 rounded-lg overflow-hidden border border-gray-300 my-4">
+    <div className={containerClasses}>
       <MapContainer
         center={center}
         zoom={data.map_zoom}
@@ -375,7 +380,8 @@ export function TrafficMap({ data }: TrafficMapProps) {
       </MapContainer>
 
       {/* Legend */}
-      <div className="bg-white px-3 py-2 border-t border-gray-300">
+      {!fullHeight && (
+        <div className="bg-background px-3 py-2 border-t border-border">
         <div className="flex items-center gap-4 flex-wrap text-xs">
           <span className="font-semibold">Leyenda:</span>
           <div className="flex items-center gap-1">
@@ -416,6 +422,7 @@ export function TrafficMap({ data }: TrafficMapProps) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { Tool } from '@/types/chat';
+import { Badge } from '@/components/ui/badge';
+import { Wrench } from 'lucide-react';
 
 interface ToolsPanelProps {
   tools: Tool[];
@@ -10,21 +12,24 @@ export function ToolsPanel({ tools }: ToolsPanelProps) {
   if (tools.length === 0) return null;
 
   return (
-    <div className="bg-gray-50 border-b p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">🔧</span>
-        <span className="text-sm font-medium text-gray-700">Herramientas disponibles</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {tools.map((tool) => (
-          <span
-            key={tool.name}
-            className="px-2 py-1 bg-white border rounded text-xs text-gray-600"
-            title={tool.description}
-          >
-            {tool.name}
-          </span>
-        ))}
+    <div className="bg-muted/50 border-b p-4">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center gap-2 mb-3">
+          <Wrench className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">Herramientas disponibles</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {tools.map((tool) => (
+            <Badge
+              key={tool.name}
+              variant="secondary"
+              className="cursor-help"
+              title={tool.description}
+            >
+              {tool.name}
+            </Badge>
+          ))}
+        </div>
       </div>
     </div>
   );
